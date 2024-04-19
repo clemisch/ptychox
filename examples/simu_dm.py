@@ -29,22 +29,19 @@ yy, xx = meshgrid(
 )
 r = sqrt(yy**2 + xx**2)
 
-# probe_magn = ones((N, N))
-probe_magn = where(r < 0.2, 1., 0.)
-probe_magn = nd.gaussian_filter(probe_magn, 10)
+# PROBE
+pinhole = where(r < 0.2, 1., 0.)
+pinhole = nd.gaussian_filter(pinhole, 1)
+pinhole = pinhole + 0j
+
+wlen = px.physics.energy_to_wavelen(6.)
+probe = px.prop.to_nearfield(pinhole, 1e-6, wlen, 1.)
 
 n_photons = 1e6
-probe_magn = probe_magn * n_photons / sum(probe_magn)
-
-# probe_phase = zeros((N, N))
-probe_phase = rng.uniform(-0.5, 0.5, (N, N))
-probe_phase = nd.gaussian_filter(probe_phase, 10) * 100
-
-probe = probe_magn * exp(probe_phase * 1j)
+probe *= sqrt(n_photons / sum(abs(probe)**2))
 
 
-
-
+# OBJECT
 lenna = imread("/home/clem/Documents/data/lenna.png")
 lenna = lenna[..., :-1].mean(-1)
 lenna = (lenna - lenna.min()) / lenna.ptp()
@@ -119,23 +116,11 @@ fig.subplots_adjust(hspace=0, wspace=0)
 
 
 ###############################################################################
-# OPTIMIZATION
-###############################################################################
-
-@jax.jit
-def get_cost(obj, probe, shifts, meas):
-    fwds = get_forwards(obj, probe, shifts)
-    I = jnp.abs(fwds)**2
-    cost = jnp.sum(jnp.abs(I - meas))
-    return cost
-
-
-obj_0 = jnp.ones_like(obj)
-probe_0 = jnp.where(r < 0.15, 1., 0.) * jnp.ones_like(probe) * probe_magn.max()
-
-###############################################################################
 # DIFFERENCE MAP
 ###############################################################################
+
+obj_0 = jnp.ones_like(obj)
+probe_0 = nd.gaussian_filter(abs(probe), 1.) + 0j
 
 psi = px.dm.set_amplitudes(obj_0, probe_0, A_meas_noise, shifts)
 O = px.dm.update_object(psi, probe_0, shifts)
@@ -148,15 +133,14 @@ def wrap(x):
 fig, ax = subplots(2, 2, figsize=(8, 8))
 ax00 = ax[0, 0].imshow(abs(O), cmap="gray", vmin=-0.1, vmax=1.1)
 ax01 = ax[0, 1].imshow(wrap(angle(O)), cmap="twilight", vmin=-pi, vmax=pi)
-ax10 = ax[1, 0].imshow(abs(P), cmap="gray", vmin=-50, vmax=500)
+ax10 = ax[1, 0].imshow(abs(P), cmap="gray", vmin=-5, vmax=50)
 ax11 = ax[1, 1].imshow(wrap(angle(P)), cmap="twilight", vmin=-pi, vmax=pi)
 for a in ax.ravel(): 
     a.set_xticks([]), a.set_yticks([])
 fig.tight_layout()
 
 
-
-for i in tqdm(range(1000)):
+for i in tqdm(range(30)):
     psi = px.dm.set_amplitudes(O, P, A_meas_noise, shifts)
     O = px.dm.update_object(psi, P, shifts)
     P = px.dm.update_probe(psi, O, shifts)
