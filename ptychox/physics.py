@@ -5,4 +5,4 @@ def energy_to_wavelen(energy):
     h = 4.1357e-15   # [eVs]
     c = 299792458    # [m/s]
 
-    return h * c / (energy * 1000)
+    return h * c / (energy * 1e3)
