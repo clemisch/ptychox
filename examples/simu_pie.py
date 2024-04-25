@@ -53,26 +53,20 @@ earth = (earth - earth.min()) / earth.ptp()
 lenna = nd.zoom(lenna, N / array(lenna.shape), order=1)
 earth = nd.zoom(earth, N / array(earth.shape), order=1)
 
-obj_magn = earth
+obj_magn = 1 - earth
 obj_phase = pi * (lenna - 0.5)
 obj = obj_magn * exp(obj_phase * 1j)
 
 
 M = 11
-shifts = linspace(-0.35, 0.35, M, True) * N
-shifts = array(list(product(shifts, shifts)), dtype="int32")
-
-@jax.jit
-def get_rolls(x, shifts):
-    x_rolled = jax.vmap(jnp.roll, (None, 0, None), 0)(x, shifts, (0, 1))
-    return x_rolled
-
-probes = get_rolls(probe, shifts)
+shifts0 = linspace(-0.25, 0.25, M, True) * N
+shifts0 = array(list(product(shifts0, shifts0)))
+shifts = shifts0 + rng.uniform(-1, 1, shifts0.shape)
 
 
 @jax.jit
 def get_forward(obj, probe, shift):
-    probe = jnp.roll(probe, shift, (0, 1))
+    probe = px.utils.get_shifted_bilinear(probe, shift)
     fwd = px.prop.to_farfield(obj * probe)
     return fwd
 
@@ -97,36 +91,35 @@ def pclip(x):
     return clip(x, lo, hi)
 
 
-fig, ax = subplots(M, M, figsize=(10, 10), dpi=100)
-for i, a in enumerate(ax.ravel()):
-    eff = roll(probe, shifts[i], (0, 1)) * obj
-    a.imshow(pclip(abs(eff)), cmap="viridis")
-    a.set_xticks([]); a.set_yticks([])
-    a.set_xticklabels([]); a.set_xticklabels([])
-fig.tight_layout()
-fig.subplots_adjust(hspace=0, wspace=0)
+def wrap(x):
+    return arctan2(sin(x), cos(x))
 
-fig, ax = subplots(M, M, figsize=(10, 10), dpi=100)
-for i, a in enumerate(ax.ravel()):
-    a.imshow(pclip(I_meas_noise[i]), cmap="inferno")
-    a.set_xticks([]); a.set_yticks([])
-    a.set_xticklabels([]); a.set_xticklabels([])
-fig.tight_layout()
-fig.subplots_adjust(hspace=0, wspace=0)
+
+# fig, ax = subplots(M, M, figsize=(10, 10), dpi=100)
+# for i, a in enumerate(ax.ravel()):
+#     eff = px.prop.get_shifted_bilinear(probe, shifts[i]) * obj
+#     a.imshow(pclip(abs(eff)), cmap="viridis")
+#     a.set_xticks([]); a.set_yticks([])
+#     a.set_xticklabels([]); a.set_xticklabels([])
+# fig.tight_layout()
+# fig.subplots_adjust(hspace=0, wspace=0)
+
+# fig, ax = subplots(M, M, figsize=(10, 10), dpi=100)
+# for i, a in enumerate(ax.ravel()):
+#     a.imshow(pclip(I_meas_noise[i]), cmap="inferno")
+#     a.set_xticks([]); a.set_yticks([])
+#     a.set_xticklabels([]); a.set_xticklabels([])
+# fig.tight_layout()
+# fig.subplots_adjust(hspace=0, wspace=0)
 
 
 ###############################################################################
 # EXTENDED PIE
 ###############################################################################
 
-def wrap(x):
-    return arctan2(sin(x), cos(x))
-
-
-obj_0 = jnp.ones_like(obj)
-probe_0 = nd.gaussian_filter(abs(probe), 1.) + 0j
-
-O, P = px.pie.update_shots(obj_0, probe_0, shifts, A_meas_noise, 1.0, 1.0)
+O = jnp.ones_like(obj)
+# P = nd.gaussian_filter(abs(probe), 1.) + 0j
+P = probe
 
 
 
@@ -138,7 +131,6 @@ ax11 = ax[1, 1].imshow(wrap(angle(P)), cmap="twilight", vmin=-pi, vmax=pi)
 for a in ax.ravel(): 
     a.set_xticks([]), a.set_yticks([])
 fig.tight_layout()
-
 
 
 

@@ -1,16 +1,16 @@
 import jax
 import jax.numpy as jnp
 
-from . import prop
+from . import prop, utils
 
 EPS = 1e-6
 
 
 @jax.jit
 def update_object(psi_diff, obj, probe, shift, alpha=1.0):
-    probe = prop.get_shifted_bilinear(probe, shift)
+    probe = utils.get_shifted_bilinear(probe, shift)
     nom = jnp.conj(probe) 
-    denom = jnp.nanmax(jnp.square(jnp.abs(probe)))
+    denom = jnp.max(jnp.square(jnp.abs(probe)))
     step = nom / (denom + EPS) * psi_diff
     obj = obj + alpha * step
 
@@ -19,21 +19,20 @@ def update_object(psi_diff, obj, probe, shift, alpha=1.0):
 
 @jax.jit
 def update_probe(psi_diff, obj, probe, shift, beta=1.0):
-    obj = prop.get_shifted_bilinear(obj, -shift)
+    obj = utils.get_shifted_bilinear(obj, -shift)
     nom = jnp.conj(obj) 
-    denom = jnp.nanmax(jnp.square(jnp.abs(obj)))
+    denom = jnp.max(jnp.square(jnp.abs(obj)))
     step = nom / (denom + EPS) * psi_diff
-    probe = probe + beta * step
-    jax.debug.breakpoint()
+    probe = probe + beta * utils.get_shifted_bilinear(step, -shift)
 
     return probe
 
 
 @jax.jit
 def update_shot(obj, probe, shift, ampl, alpha=1.0, beta=1.0):
-    psi = obj * prop.get_shifted_bilinear(probe, shift)
+    psi = obj * utils.get_shifted_bilinear(probe, shift)
     fwd = prop.to_farfield(psi)
-    fwd = ampl * fwd / (jnp.abs(fwd) + EPS)
+    fwd = utils.set_magn(fwd, ampl)
     psi_new = prop.from_farfield(fwd)
     psi_diff = psi_new - psi
 
