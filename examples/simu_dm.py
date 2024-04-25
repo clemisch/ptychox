@@ -53,26 +53,20 @@ earth = (earth - earth.min()) / earth.ptp()
 lenna = nd.zoom(lenna, N / array(lenna.shape), order=1)
 earth = nd.zoom(earth, N / array(earth.shape), order=1)
 
-obj_magn = earth
+obj_magn = 1 - earth
 obj_phase = pi * (lenna - 0.5)
 obj = obj_magn * exp(obj_phase * 1j)
 
 
 M = 11
 shifts = linspace(-0.35, 0.35, M, True) * N
-shifts = array(list(product(shifts, shifts)), dtype="int32")
-
-@jax.jit
-def get_rolls(x, shifts):
-    x_rolled = jax.vmap(jnp.roll, (None, 0, None), 0)(x, shifts, (0, 1))
-    return x_rolled
-
-probes = get_rolls(probe, shifts)
+shifts = array(list(product(shifts, shifts)))
+shifts += rng.uniform(-3, 3, shifts.shape)
 
 
 @jax.jit
 def get_forward(obj, probe, shift):
-    probe = jnp.roll(probe, shift, (0, 1))
+    probe = px.utils.get_shifted_bilinear(probe, shift)
     fwd = px.prop.to_farfield(obj * probe)
     return fwd
 
@@ -97,16 +91,16 @@ def pclip(x):
     return clip(x, lo, hi)
 
 
-fig, ax = subplots(M, M, figsize=(10, 10), dpi=100)
+fig, ax = subplots(M, M, figsize=(8, 8), dpi=100)
 for i, a in enumerate(ax.ravel()):
-    eff = roll(probe, shifts[i], (0, 1)) * obj
+    eff = px.utils.get_shifted_bilinear(probe, shifts[i]) * obj
     a.imshow(pclip(abs(eff)), cmap="viridis")
     a.set_xticks([]); a.set_yticks([])
     a.set_xticklabels([]); a.set_xticklabels([])
 fig.tight_layout()
 fig.subplots_adjust(hspace=0, wspace=0)
 
-fig, ax = subplots(M, M, figsize=(10, 10), dpi=100)
+fig, ax = subplots(M, M, figsize=(8, 8), dpi=100)
 for i, a in enumerate(ax.ravel()):
     a.imshow(pclip(I_meas_noise[i]), cmap="inferno")
     a.set_xticks([]); a.set_yticks([])
@@ -139,11 +133,53 @@ for a in ax.ravel():
     a.set_xticks([]), a.set_yticks([])
 fig.tight_layout()
 
+λ = 1.0
 
-for i in tqdm(range(30)):
+for i in tqdm(range(50)):
     psi = px.dm.set_amplitudes(O, P, A_meas_noise, shifts)
-    O = px.dm.update_object(psi, P, shifts)
-    P = px.dm.update_probe(psi, O, shifts)
+    O = (1 - λ) * O + λ * px.dm.update_object(psi, P, shifts)
+    P = (1 - λ) * P + λ * px.dm.update_probe(psi, O, shifts)
+
+    ax00.set_data(abs(O))
+    ax01.set_data(angle(O))
+    ax10.set_data(abs(P))
+    ax11.set_data(angle(P))
+    pause(1e-3)
+
+
+###############################################################################
+# INIT WITH SMOOTHED RESULT
+###############################################################################
+
+def gaussian_filter_circular(x, sig):
+    xsin = nd.gaussian_filter(sin(x), sig)
+    xcos = nd.gaussian_filter(cos(x), sig)
+    out = arctan2(xsin, xcos)
+    return out
+
+
+O_smooth = nd.gaussian_filter(abs(O), 2) * exp(1j * gaussian_filter_circular(angle(O), 2))
+
+psi = px.dm.set_amplitudes(O_smooth, P, A_meas_noise, shifts)
+O = px.dm.update_object(psi, probe_0, shifts)
+P = px.dm.update_probe(psi, O, shifts)
+
+
+fig, ax = subplots(2, 2, figsize=(8, 8))
+ax00 = ax[0, 0].imshow(abs(O), cmap="gray", vmin=-0.1, vmax=1.1)
+ax01 = ax[0, 1].imshow(wrap(angle(O)), cmap="twilight", vmin=-pi, vmax=pi)
+ax10 = ax[1, 0].imshow(abs(P), cmap="gray", vmin=-5, vmax=50)
+ax11 = ax[1, 1].imshow(wrap(angle(P)), cmap="twilight", vmin=-pi, vmax=pi)
+for a in ax.ravel(): 
+    a.set_xticks([]), a.set_yticks([])
+fig.tight_layout()
+
+λ = 1.0
+
+for i in tqdm(range(50)):
+    psi = px.dm.set_amplitudes(O, P, A_meas_noise, shifts)
+    O = (1 - λ) * O + λ * px.dm.update_object(psi, P, shifts)
+    P = (1 - λ) * P + λ * px.dm.update_probe(psi, O, shifts)
 
     ax00.set_data(abs(O))
     ax01.set_data(angle(O))
