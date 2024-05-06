@@ -8,7 +8,7 @@ EPS = 1e-6
 
 @jax.jit
 def update_object(psi_diff, obj, probe, shift, alpha=1.0):
-    probe = utils.get_shifted_bilinear(probe, shift)
+    probe = utils.get_shifted_roll(probe, shift)
     nom = jnp.conj(probe) 
     denom = jnp.max(jnp.square(jnp.abs(probe)))
     step = nom / (denom + EPS) * psi_diff
@@ -19,18 +19,18 @@ def update_object(psi_diff, obj, probe, shift, alpha=1.0):
 
 @jax.jit
 def update_probe(psi_diff, obj, probe, shift, beta=1.0):
-    obj = utils.get_shifted_bilinear(obj, -shift)
+    obj = utils.get_shifted_roll(obj, -shift)
     nom = jnp.conj(obj) 
     denom = jnp.max(jnp.square(jnp.abs(obj)))
     step = nom / (denom + EPS) * psi_diff
-    probe = probe + beta * utils.get_shifted_bilinear(step, -shift)
+    probe = probe + beta * utils.get_shifted_roll(step, -shift)
 
     return probe
 
 
 @jax.jit
 def update_shot(obj, probe, shift, ampl, alpha=1.0, beta=1.0):
-    psi = obj * utils.get_shifted_bilinear(probe, shift)
+    psi = obj * utils.get_shifted_roll(probe, shift)
     fwd = prop.to_farfield(psi)
     fwd = utils.set_magn(fwd, ampl)
     psi_new = prop.from_farfield(fwd)

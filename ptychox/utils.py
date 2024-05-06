@@ -14,8 +14,30 @@ def set_magn(x, m):
 
 
 @jax.jit
-def get_shifted_roll(img, shift):
-    out = jnp.roll(img, shift, (0, 1))
+def get_shifted_roll(img, shifts):
+    shifts = jnp.asarray(shifts)
+    assert shifts.size == img.ndim
+
+    axes = range(img.ndim)
+
+    # integer shifts
+    if shifts.dtype == "int32":
+        out = jnp.roll(img, shifts, axes)
+
+    # subpixel shifts
+    else:
+        shape = jnp.array(img.shape)
+        shifts = (shifts + shape) % shape
+        shifts, rem = jnp.divmod(shifts, 1.)
+
+        # shift each axis
+        out = img
+        for i, shift in enumerate(shifts):
+            out = (
+                jnp.roll(out, shift, i) * (1 - rem[i]) + 
+                jnp.roll(out, shift + 1, i) * rem[i]
+            )
+
     return out
 
 

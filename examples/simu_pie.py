@@ -66,7 +66,7 @@ shifts = shifts0 + rng.uniform(-1, 1, shifts0.shape)
 
 @jax.jit
 def get_forward(obj, probe, shift):
-    probe = px.utils.get_shifted_bilinear(probe, shift)
+    probe = px.utils.get_shifted_roll(probe, shift)
     fwd = px.prop.to_farfield(obj * probe)
     return fwd
 
@@ -97,13 +97,13 @@ def wrap(x):
 
 # fig, ax = subplots(M, M, figsize=(10, 10), dpi=100)
 # for i, a in enumerate(ax.ravel()):
-#     eff = px.prop.get_shifted_bilinear(probe, shifts[i]) * obj
+#     eff = px.prop.get_shifted_ roll(probe, shifts[i]) * obj
 #     a.imshow(pclip(abs(eff)), cmap="viridis")
 #     a.set_xticks([]); a.set_yticks([])
 #     a.set_xticklabels([]); a.set_xticklabels([])
 # fig.tight_layout()
 # fig.subplots_adjust(hspace=0, wspace=0)
-
+    
 # fig, ax = subplots(M, M, figsize=(10, 10), dpi=100)
 # for i, a in enumerate(ax.ravel()):
 #     a.imshow(pclip(I_meas_noise[i]), cmap="inferno")
@@ -131,7 +131,6 @@ ax11 = ax[1, 1].imshow(wrap(angle(P)), cmap="twilight", vmin=-pi, vmax=pi)
 for a in ax.ravel(): 
     a.set_xticks([]), a.set_yticks([])
 fig.tight_layout()
-
 
 
 for i in tqdm(range(50)):
