@@ -1,4 +1,4 @@
 import jax
 import jax.numpy as jnp
 
-from . import prop
+from . import prop, utils
