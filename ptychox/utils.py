@@ -18,14 +18,14 @@ def get_shifted_roll(img, shifts):
     shifts = jnp.asarray(shifts)
     assert shifts.size == img.ndim
 
-    axes = range(img.ndim)
-
     # integer shifts
     if shifts.dtype == "int32":
+        axes = range(img.ndim)
         out = jnp.roll(img, shifts, axes)
 
     # subpixel shifts
     else:
+        # enforce positive shifts
         shape = jnp.array(img.shape)
         shifts = (shifts + shape) % shape
         shifts, rem = jnp.divmod(shifts, 1.)
@@ -33,9 +33,11 @@ def get_shifted_roll(img, shifts):
         # shift each axis
         out = img
         for i, shift in enumerate(shifts):
+            axis = i
+            λ = rem[i]
             out = (
-                jnp.roll(out, shift, i) * (1 - rem[i]) + 
-                jnp.roll(out, shift + 1, i) * rem[i]
+                (1 - λ) * jnp.roll(out, shift, axis) + 
+                λ * jnp.roll(out, shift + 1, axis)
             )
 
     return out
