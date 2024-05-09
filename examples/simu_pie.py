@@ -125,7 +125,6 @@ def wrap(x):
 ###############################################################################
 
 O = jnp.ones_like(obj)
-# P = nd.gaussian_filter(abs(probe), 1.) + 0j
 P = probe
 
 
@@ -148,3 +147,55 @@ for i in tqdm(range(50)):
     ax10.set_data(abs(P))
     ax11.set_data(angle(P))
     pause(1e-3)
+
+
+###############################################################################
+# ML
+###############################################################################
+
+@jax.jit
+def get_cost(O_abs, O_angle, P_abs, P_angle, ampls, shifts):
+    # O = O_real + 1j * O_imag
+    # P = P_real + 1j * P_imag
+    O = O_abs * jnp.exp(1j * O_angle)
+    P = P_abs * jnp.exp(1j * P_angle)
+
+
+    def get_cost_shot(ampl, shift):
+        P_shift = px.utils.get_shifted_roll(P, shift)
+        # P_shift = px.utils.get_shifted_bilinear(P, shift)
+        psi = px.prop.to_farfield(O * P_shift)
+        fwd = jnp.abs(psi)
+        cost = jnp.sum(jnp.square(fwd - ampl))
+        return cost
+
+    costs = jax.vmap(get_cost_shot)(ampls, shifts)
+    cost = jnp.sum(costs)
+
+    return cost
+
+
+get_grad = jax.jit(jax.grad(get_cost, argnums=(0, 1, 2, 3)))
+
+
+
+xopt, hist, res = px.lbfgs.lbfgs_aux(
+    get_cost,
+    get_grad,
+    # (O.real, O.imag, P.real, P.imag),
+    (abs(O), angle(O), abs(P), angle(P)),
+    aux=(A_meas_noise, shifts),
+    tol=1e-4,
+    maxiter=100,
+    move_gpu=True,
+    is_silent=True,
+    history=True,
+)
+
+# O_ = xopt[0] + 1j * xopt[1]
+# P_ = xopt[2] + 1j * xopt[3]
+O_ = xopt[0] * jnp.exp(1j * xopt[1])
+P_ = xopt[2] * jnp.exp(1j * xopt[3])
+
+
+hist = array(hist)
