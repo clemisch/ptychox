@@ -4,7 +4,6 @@ import jax.numpy as jnp
 import scipy.ndimage as nd
 import scipy.optimize as opt
 from itertools import product
-from tqdm import tqdm
 
 import ptychox as px
 
@@ -15,6 +14,14 @@ import IPython
 ipython = IPython.get_ipython()
 ipython.run_line_magic("load_ext", "autoreload")
 ipython.run_line_magic("autoreload", "2")
+
+
+
+from tqdm import tqdm as _tqdm
+
+def tqdm(*args, **kwargs):
+    kwargs["bar_format"] = "{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_noinv_fmt}]"
+    return _tqdm(*args, **kwargs)
 
 ###############################################################################
 # SIMULATION
