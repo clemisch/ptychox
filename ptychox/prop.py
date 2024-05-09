@@ -5,7 +5,6 @@ import jax.scipy.ndimage as jnd
 
 @jax.jit
 def to_farfield(field):
-    # field = jnp.fft.ifftshift(field)
     fwd = jnp.fft.fft2(field, norm="ortho") 
     fwd = jnp.fft.fftshift(fwd)
 
@@ -16,7 +15,6 @@ def to_farfield(field):
 def from_farfield(field):
     field = jnp.fft.ifftshift(field)
     bck = jnp.fft.ifft2(field, norm="ortho") 
-    # bck = jnp.fft.fftshift(bck)
 
     return bck
 
