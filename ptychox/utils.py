@@ -1,3 +1,4 @@
+import numpy as np
 import jax
 import jax.numpy as jnp
 import jax.scipy.ndimage as jnd
@@ -60,3 +61,41 @@ def get_shifted_bilinear(img, shift):
     )
 
     return out
+
+
+
+@jax.jit
+def get_exit_wave(obj, probe, shifts):
+    """\
+    Get exit wave with shifted object
+    Object is rolled to integer shift
+    Remaining subpixel shift is applied inversely to probe (linear interp)
+    """
+    Y, X = probe.shape
+    V, U = obj.shape
+
+    # enforce positive shifts
+    shape = jnp.array(obj.shape)
+    shifts = (shifts + shape) % shape
+    shifts, rem = jnp.divmod(shifts, 1.)
+
+    # roll object by integer shift
+    obj = jnp.roll(obj, shifts, (0, 1))
+
+    # cut object center with probe size
+    # TODO: more efficient to slice in corner and adapt rolls?
+    sl_center = np.s_[
+        V//2 - Y//2 : V//2 - Y//2 + Y, 
+        U//2 - X//2 : U//2 - X//2 + X
+    ]
+    obj = obj[sl_center]
+
+    # roll probe by subpixel shift
+    λ0, λ1 = rem
+    probe = (1 - λ0) * probe + λ0 * jnp.roll(probe, 1, 0)
+    probe = (1 - λ1) * probe + λ1 * jnp.roll(probe, 1, 1)
+
+    # exit wave
+    exit = obj * probe
+
+    return exit
