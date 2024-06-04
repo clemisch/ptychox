@@ -141,7 +141,7 @@ fig.tight_layout()
 
 for i in tqdm(range(50)):
     O, P = px.pie.update_shots(O, P, shifts, A_meas_noise, 1.0, 1.0)
-
+    
     ax00.set_data(abs(O))
     ax01.set_data(angle(O))
     ax10.set_data(abs(P))
@@ -154,12 +154,9 @@ for i in tqdm(range(50)):
 ###############################################################################
 
 @jax.jit
-def get_cost(O_abs, O_angle, P_abs, P_angle, ampls, shifts):
-    # O = O_real + 1j * O_imag
-    # P = P_real + 1j * P_imag
-    O = O_abs * jnp.exp(1j * O_angle)
-    P = P_abs * jnp.exp(1j * P_angle)
-
+def get_cost(O_real, O_imag, P_real, P_imag, ampls, shifts):
+    O = O_real + 1j * O_imag
+    P = P_real + 1j * P_imag
 
     def get_cost_shot(ampl, shift):
         P_shift = px.utils.get_shifted_roll(P, shift)
@@ -182,20 +179,16 @@ get_grad = jax.jit(jax.grad(get_cost, argnums=(0, 1, 2, 3)))
 xopt, hist, res = px.lbfgs.lbfgs_aux(
     get_cost,
     get_grad,
-    # (O.real, O.imag, P.real, P.imag),
-    (abs(O), angle(O), abs(P), angle(P)),
+    (O.real, O.imag, P.real, P.imag),
     aux=(A_meas_noise, shifts),
     tol=1e-4,
     maxiter=100,
     move_gpu=True,
-    is_silent=True,
+    is_silent=False,
     history=True,
 )
 
-# O_ = xopt[0] + 1j * xopt[1]
-# P_ = xopt[2] + 1j * xopt[3]
-O_ = xopt[0] * jnp.exp(1j * xopt[1])
-P_ = xopt[2] * jnp.exp(1j * xopt[3])
-
+O_ = xopt[0] + 1j * xopt[1]
+P_ = xopt[2] + 1j * xopt[3]
 
 hist = array(hist)
