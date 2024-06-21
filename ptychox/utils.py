@@ -64,20 +64,11 @@ def get_shifted_bilinear(img, shift):
 
 
 
-@jax.jit
-def get_exit_wave(obj, probe, shifts):
-    """\
-    Get exit wave with shifted object
-    Object is rolled to integer shift
-    Remaining subpixel shift is applied inversely to probe (linear interp)
-    """
-    Y, X = probe.shape
+@partial(jax.jit, static_argnames="p_size")
+def get_obj_crop_(obj, shifts, p_size):
+    """ Slow (roll) but `shifts` is no static_argnum """
     V, U = obj.shape
-
-    # enforce positive shifts
-    shape = jnp.array(obj.shape)
-    shifts = (shifts + shape) % shape
-    shifts, rem = jnp.divmod(shifts, 1.)
+    Y, X = p_size
 
     # roll object by integer shift
     obj = jnp.roll(obj, shifts, (0, 1))
@@ -90,10 +81,83 @@ def get_exit_wave(obj, probe, shifts):
     ]
     obj = obj[sl_center]
 
-    # roll probe by subpixel shift
-    λ0, λ1 = rem
-    probe = (1 - λ0) * probe + λ0 * jnp.roll(probe, 1, 0)
-    probe = (1 - λ1) * probe + λ1 * jnp.roll(probe, 1, 1)
+    return obj
+
+
+@partial(jax.jit, static_argnames="p_size")
+def get_obj_crop(obj, shifts_int, p_size):
+    """
+    * Assumes that shifted probe doesn't clip out of object
+    * positive shift means negative slice offset (we shift obj, not viewport)
+    """
+    assert shifts_int.dtype == "int32", "Only supports integer shifts"
+
+    V, U = obj.shape
+    Y, X = p_size
+    dy, dx = shifts_int 
+
+    y_lo = V // 2 - Y // 2 - dy
+    x_lo = U // 2 - X // 2 - dx
+
+    obj_cropped = jax.lax.dynamic_slice(obj, (y_lo, x_lo), (Y, X))
+
+    return obj_cropped
+
+
+
+
+@partial(jax.jit, static_argnames="o_size")
+def get_obj_uncrop(obj_cropped, shifts_int, o_size):
+    """
+    `shifts_int` are values with which obj -> obj_cropped were computed, 
+    *not* the pixel shift were to put `obj_cropped`
+    """
+    assert shifts_int.dtype == "int32", "Only supports integer shifts_int"
+
+    Y, X = obj_cropped.shape
+    V, U = o_size
+    dy, dx = shifts_int
+
+    y_lo = V//2 - Y//2 - dy
+    x_lo = U//2 - X//2 - dx
+
+    obj = jnp.zeros_like(obj_cropped, shape=o_size)
+    obj = jax.lax.dynamic_update_slice(obj, obj_cropped, (y_lo, x_lo))
+
+    return obj
+
+
+
+
+
+@jax.jit
+def get_probe_subpixel_shift(probe, shifts):
+    s0, s1 = shifts
+    probe = (1 - s0) * probe + s0 * jnp.roll(probe, 1, 0)
+    probe = (1 - s1) * probe + s1 * jnp.roll(probe, 1, 1)
+
+    return probe
+
+
+
+@jax.jit
+def get_exit_wave(obj, probe, shifts):
+    """\
+    Get exit wave with shifted object
+    Object is rolled to integer shift
+    Remaining subpixel shift is applied inversely to probe (linear interp)
+    """
+
+    # enforce positive shifts
+    shape = jnp.array(obj.shape)
+    shifts = (shifts + shape) % shape
+    shifts_int, shifts_rem = jnp.divmod(shifts, 1.)
+
+    # shift object by integer amount and crop
+    obj = get_obj_crop(obj, shifts_int.astype("int32"), probe.shape)
+
+    # roll probe by remaining subpixel shift
+    probe = get_probe_subpixel_shift(probe, shifts_rem)
 
     # exit wave
     exit = obj * probe
