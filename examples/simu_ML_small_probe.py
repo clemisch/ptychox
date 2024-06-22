@@ -67,7 +67,7 @@ earth = imread("/home/clem/Documents/data/earth.png")
 earth = earth[..., :-1].mean(-1)
 earth = (earth - earth.min()) / ptp(earth)
 
-scaling = 2
+scaling = 3
 lenna = nd.zoom(lenna, scaling * N / array(lenna.shape), order=1)
 earth = nd.zoom(earth, scaling * N / array(earth.shape), order=1)
 
@@ -76,10 +76,10 @@ obj_phase = pi * (lenna - 0.5)
 obj = obj_magn * exp(obj_phase * 1j)
 
 
-M = 15
+M = 11
 shifts0 = linspace(-0.20, 0.20, M, True) * N * scaling
 shifts0 = array(list(product(shifts0, shifts0)))
-shifts = shifts0 + rng.uniform(-1, 1, shifts0.shape)
+shifts = shifts0 + rng.uniform(-2, 2, shifts0.shape)
 
 
 @jax.jit
@@ -100,6 +100,19 @@ A_meas = sqrt(I_meas)
 A_meas_noise = sqrt(I_meas_noise)
 
 ###############################################################################
+# VISUALIZE STEPS
+###############################################################################
+    
+fig, ax = subplots(1, 2)
+ax[0].imshow(abs(obj), cmap="gray", extent=[-256, 255, -256, 255])
+ax[0].scatter(*shifts.T, fc="none", ec="red")
+
+ax[1].imshow(angle(obj), cmap="gray", extent=[-256, 255, -256, 255])
+ax[1].scatter(*shifts.T, fc="none", ec="red")
+
+pause(1e-2)
+
+###############################################################################
 # ML
 ###############################################################################
 
@@ -109,11 +122,6 @@ def pclip(x):
 
 def wrap(x):
     return arctan2(sin(x), cos(x))
-
-
-O = jnp.ones_like(obj)
-P = probe
-
 
 @jax.jit
 def get_tv(x):
@@ -139,15 +147,20 @@ def get_cost(O_real, O_imag, P_real, P_imag, ampls, shifts):
     costs = jax.vmap(get_cost_shot)(ampls, shifts)
     cost = jnp.sum(costs)
 
-    cost_reg = get_tv(jnp.abs(O)) + get_tv(jnp.angle(O))
-    cost += 0.5 * cost_reg
+    cost_reg = get_tv(jnp.abs(O))
+    cost += cost_reg
 
     return cost
-
 
 get_grad = jax.jit(jax.grad(get_cost, argnums=(0, 1, 2, 3)))
 
 
+
+
+
+O = jnp.ones_like(obj)
+P = probe
+# P = nd.gaussian_filter(abs(probe), 1) * exp(1j * nd.gaussian_filter(angle(probe), 1))
 
 xopt, hist, res = px.lbfgs.lbfgs_aux(
     get_cost,
@@ -164,97 +177,19 @@ xopt, hist, res = px.lbfgs.lbfgs_aux(
 O_ = xopt[0] + 1j * xopt[1]
 P_ = xopt[2] + 1j * xopt[3]
 
-
+O_hist = array([item[0] + 1j * item[1] for item in hist])
+P_hist = array([item[2] + 1j * item[3] for item in hist])
 
 
 ###############################################################################
 # DM
 ###############################################################################
 
-from functools import partial
-
-EPS = 1e-6
-
-@jax.jit
-def set_amplitudes(obj, probe, ampls, shifts):
-    psis = jax.vmap(px.utils.get_exit_wave, (None, None, 0))(obj, probe, shifts)
-    fwds = jax.vmap(px.prop.to_farfield)(psis)
-    fwds = px.utils.set_magn(fwds, ampls)
-    psis_new = jax.vmap(px.prop.from_farfield)(fwds)
-
-    return psis_new
-
-
-@jax.jit
-def update_probe(psi, obj, shifts):
-    p_shape = psi.shape[1:]
-
-    shifts_int, _ = jnp.divmod(shifts, 1.)
-    shifts_int = shifts_int.astype("int32")
-
-    obj = jax.vmap(px.utils.get_obj_crop, (None, 0, None))(obj, shifts_int, p_shape)
-    nom = jnp.sum(jnp.conj(obj) * psi, axis=0)
-    denom = jnp.sum(jnp.square(jnp.abs(obj)), axis=0)
-    probe = nom / (denom + EPS)
-
-    return probe
-
-
-@partial(jax.jit, static_argnames="o_shape")
-def update_object(psi, probe, shifts, o_shape):
-    shifts_int, _ = jnp.divmod(shifts, 1.)
-    shifts_int = shifts_int.astype("int32")
-
-    nom = jax.vmap(px.utils.get_obj_uncrop, (0, 0, None))(
-        jnp.conj(probe)[None] * psi, 
-        shifts_int, 
-        o_shape
-    )
-    nom = jnp.sum(nom, axis=0)
-    
-    denom = jnp.sum(jnp.square(jnp.abs(
-        jax.vmap(px.utils.get_obj_uncrop, (None, 0, None))(probe, shifts_int, o_shape)
-    )), axis=0)
-
-    obj = nom / (denom + EPS)
-
-    return obj
-
-
-@jax.jit
-def get_update(O, P, meas, shifts):
-    psis = set_amplitudes(O, P, meas, shifts)
-    O_ = update_object(psis, P, shifts, O.shape)
-    P_ = update_probe(psis, O, shifts)
-
-    return O_, P_
-
 
 O = jnp.ones_like(obj)
 P = probe
 
-for _ in tqdm(range(10)):
-    O, P = get_update(O, P, A_meas, shifts)
-
-
-
-
-
-
-
-
-
-
-obj_0 = jnp.ones_like(obj)
-probe_0 = probe
-
-psi = set_amplitudes(obj_0, probe_0, A_meas_noise, shifts)
-O = update_object(psi, probe_0, shifts, O.shape)
-P = update_probe(psi, O, shifts)
-
-
-def wrap(x):
-    return arctan2(sin(x), cos(x))
+O, P = px.dm.get_update(O, P, A_meas, shifts)
 
 fig, ax = subplots(2, 2, figsize=(8, 8))
 ax00 = ax[0, 0].imshow(abs(O), cmap="gray", vmin=-0.1, vmax=1.1)
@@ -269,9 +204,9 @@ fig.tight_layout()
 λ = 1.0
 
 for i in tqdm(range(50)):
-    psi = set_amplitudes(O, P, A_meas_noise, shifts)
-    O = (1 - λ) * O + λ * update_object(psi, P, shifts, O.shape)
-    P = (1 - λ) * P + λ * update_probe(psi, O, shifts)
+    O_, P_ = px.dm.get_update(O, P, A_meas, shifts)
+    O = (1 - λ) * O + λ * O_
+    P = (1 - λ) * P + λ * P_
 
     ax00.set_data(abs(O))
     ax01.set_data(angle(O))
