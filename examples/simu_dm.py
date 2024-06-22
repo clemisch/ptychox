@@ -44,11 +44,11 @@ probe *= sqrt(n_photons / sum(abs(probe)**2))
 # OBJECT
 lenna = imread("/home/clem/Documents/data/lenna.png")
 lenna = lenna[..., :-1].mean(-1)
-lenna = (lenna - lenna.min()) / lenna.ptp()
+lenna = (lenna - lenna.min()) / ptp(lenna)
 
 earth = imread("/home/clem/Documents/data/earth.png")
 earth = earth[..., :-1].mean(-1)
-earth = (earth - earth.min()) / earth.ptp()
+earth = (earth - earth.min()) / ptp(earth)
 
 lenna = nd.zoom(lenna, N / array(lenna.shape), order=1)
 earth = nd.zoom(earth, N / array(earth.shape), order=1)
@@ -116,9 +116,9 @@ fig.subplots_adjust(hspace=0, wspace=0)
 obj_0 = jnp.ones_like(obj)
 probe_0 = nd.gaussian_filter(abs(probe), 1.) + 0j
 
-psi = px.dm.set_amplitudes(obj_0, probe_0, A_meas_noise, shifts)
-O = px.dm.update_object(psi, probe_0, shifts)
-P = px.dm.update_probe(psi, O, shifts)
+psi = px.dm_naive.set_amplitudes(obj_0, probe_0, A_meas_noise, shifts)
+O = px.dm_naive.update_object(psi, probe_0, shifts)
+P = px.dm_naive.update_probe(psi, O, shifts)
 
 
 def wrap(x):
@@ -136,9 +136,9 @@ fig.tight_layout()
 λ = 1.0
 
 for i in tqdm(range(50)):
-    psi = px.dm.set_amplitudes(O, P, A_meas_noise, shifts)
-    O = (1 - λ) * O + λ * px.dm.update_object(psi, P, shifts)
-    P = (1 - λ) * P + λ * px.dm.update_probe(psi, O, shifts)
+    psi = px.dm_naive.set_amplitudes(O, P, A_meas_noise, shifts)
+    O = (1 - λ) * O + λ * px.dm_naive.update_object(psi, P, shifts)
+    P = (1 - λ) * P + λ * px.dm_naive.update_probe(psi, O, shifts)
 
     ax00.set_data(abs(O))
     ax01.set_data(angle(O))
@@ -160,9 +160,9 @@ def gaussian_filter_circular(x, sig):
 
 O_smooth = nd.gaussian_filter(abs(O), 2) * exp(1j * gaussian_filter_circular(angle(O), 2))
 
-psi = px.dm.set_amplitudes(O_smooth, P, A_meas_noise, shifts)
-O = px.dm.update_object(psi, probe_0, shifts)
-P = px.dm.update_probe(psi, O, shifts)
+psi = px.dm_naive.set_amplitudes(O_smooth, P, A_meas_noise, shifts)
+O = px.dm_naive.update_object(psi, probe_0, shifts)
+P = px.dm_naive.update_probe(psi, O, shifts)
 
 
 fig, ax = subplots(2, 2, figsize=(8, 8))
@@ -177,9 +177,9 @@ fig.tight_layout()
 λ = 1.0
 
 for i in tqdm(range(50)):
-    psi = px.dm.set_amplitudes(O, P, A_meas_noise, shifts)
-    O = (1 - λ) * O + λ * px.dm.update_object(psi, P, shifts)
-    P = (1 - λ) * P + λ * px.dm.update_probe(psi, O, shifts)
+    psi = px.dm_naive.set_amplitudes(O, P, A_meas_noise, shifts)
+    O = (1 - λ) * O + λ * px.dm_naive.update_object(psi, P, shifts)
+    P = (1 - λ) * P + λ * px.dm_naive.update_probe(psi, O, shifts)
 
     ax00.set_data(abs(O))
     ax01.set_data(angle(O))
