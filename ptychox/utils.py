@@ -120,8 +120,8 @@ def get_probe_subpixel_shift(probe, shifts_rem):
 
 
 
-@jax.jit
-def get_exit_wave(obj, probe, shifts):
+@partial(jax.jit, static_argnames="reshift")
+def get_exit_wave(obj, probe, shifts, reshift=False):
     """\
     Get exit wave with shifted object
     Object is shifted by integer shift and cropped to probe
@@ -140,5 +140,8 @@ def get_exit_wave(obj, probe, shifts):
 
     # exit wave
     exit = obj * probe
+
+    if reshift:
+        exit = get_probe_subpixel_shift(exit, shifts_rem)
 
     return exit
