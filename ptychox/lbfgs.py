@@ -10,6 +10,7 @@ from time import time
 from jax.flatten_util import ravel_pytree
 ravel_pytree_jit = jax.jit(lambda tree: ravel_pytree(tree)[0])
 
+NOOP = lambda *args, **kwargs: None
 
 
 def timed(func):
@@ -88,6 +89,7 @@ def lbfgs_aux(
         move_gpu=False,
         is_silent=False,
         history=False,
+        callback=None,
     ):
     """\
     Small wrapper around scipy LBFGS with support for auxiliary arguments.
@@ -134,7 +136,6 @@ def lbfgs_aux(
         aux = [jnp.asarray(a) if isinstance(a, np.ndarray) else a for a in aux]
         aux = tuple(aux)
 
-    hist = []
 
     # get flat coefficients and function to unravel coeffs from flat to tuple
     x0, unravel_coeffs = ravel_pytree(x0)
@@ -148,9 +149,6 @@ def lbfgs_aux(
         if not np.isfinite(cost):
             warnings.warn("cost_function returned NaN")
 
-        if history:
-            hist.append(x)
-
         return cost
 
     def grad_wrap(x_flat):
@@ -163,6 +161,22 @@ def lbfgs_aux(
             warnings.warn("grad_function returned NaN")
         return grad
 
+    # handle history and external callback
+    f_history = NOOP
+    if history:
+        hist = []
+        f_history = lambda x: hist.append(x)
+
+    if callback is None:
+        callback = NOOP
+
+    internal_callback = NOOP
+    if history or callback:
+        def internal_callback(x_flat):        
+            x = unravel_coeffs(x_flat)
+            f_history(x)
+            callback(x)
+
     if not is_silent: 
         cost_wrap = timed(cost_wrap)        
         grad_wrap = timed(grad_wrap)        
@@ -173,7 +187,8 @@ def lbfgs_aux(
         method="L-BFGS-B",
         jac=grad_wrap,
         options={"maxiter": maxiter, "disp": None},
-        tol=tol
+        tol=tol,
+        callback=internal_callback
     )
     if not res.success:
         print(res.message)
