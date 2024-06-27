@@ -92,7 +92,7 @@ def lbfgs_aux(
         callback=None,
     ):
     """\
-    Small wrapper around scipy LBFGS with support for auxiliary arguments.
+    Wrapper around scipy LBFGS with support for auxiliary arguments.
 
     Arguments:
     ----------
@@ -115,15 +115,21 @@ def lbfgs_aux(
         Maximum number of iterations of scipy LBFGS
     move_gpu : bool
         Flag to move arrays in `aux` to GPU before optimization.
+    is_silent : bool
+        Flag to print timings of cost and grad functions
+    history : bool
+        Flag to create and return list of intermediate guesses `x`
+    callback : function 
+        Function f(x) receiving current guess `x` at every LBFGS iteration 
 
     Returns:
     --------
     x_opt : tuple
         Tuple containing optimized arguments as arrays.
-
-    Example: 
-    --------
-    See `fit` in em_jax/grad_proc_windows.py 
+    hist : None or list
+        List if intermediate guesses `x`. Only if ``history == True``
+    res : dict-like
+        Return dict of scipy LBFGS
 
     """
     if not isinstance(x0, tuple):
