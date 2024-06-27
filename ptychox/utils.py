@@ -142,6 +142,9 @@ def get_exit_wave(obj, probe, shifts, reshift=False):
     exit = obj * probe
 
     if reshift:
+        # shift exit wave to physically correct position
+        # disabled by default because unnecessary for far-field ptycho
+        # (translation in real space => phase ramp in Fourier space => no change in intensity)
         exit = get_probe_subpixel_shift(exit, shifts_rem)
 
     return exit
