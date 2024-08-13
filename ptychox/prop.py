@@ -25,18 +25,17 @@ def to_nearfield(field, psize, wlen, dist, M=1.):
     Fresnel propagator
     All distances in meters 
     """
-    V, U = field.shape
-    uu = 2. * jnp.pi * jnp.fft.fftfreq(U, psize)
-    vv = 2. * jnp.pi * jnp.fft.fftfreq(V, psize)
+    dim = field.shape
+    freqs = [2. * pi * jnp.fft.fftfreq(n, psize) for n in dim]
+    coords = jnp.meshgrid(*freqs, indexing="ij", sparse=True)
 
-    # magification == fan to parallel beam
-    # (Fresnel scaling theorem)
+    R2 = jnp.zeros_like(field)
+    for i in range(field.ndim):
+        R2 += jnp.square(coords[i])
+
     dist = dist / M
-
-    k = 2 * jnp.pi / wlen
-    r2 = jnp.square(vv)[:, None] + jnp.square(uu)[None]
-    kernel = jnp.exp(1j * k * dist) * jnp.exp(-1j * dist / (2. * k) * r2)
-
-    out = jnp.fft.ifft2(kernel * jnp.fft.fft2(field))
+    k = 2 * np.pi / wlen
+    kernel = jnp.exp(1j * k * dist) * jnp.exp(-1j * dist / (2. * k) * R2)
+    out = jnp.fft.ifftn(kernel * jnp.fft.fftn(field))
 
     return out
