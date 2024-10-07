@@ -169,8 +169,8 @@ def lbfgs_aux(
 
     # handle history and external callback
     f_history = NOOP
+    hist = []
     if history:
-        hist = []
         f_history = lambda x: hist.append(x)
 
     if callback is None:
