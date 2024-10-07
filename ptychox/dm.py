@@ -39,16 +39,17 @@ def update_probe(psi, obj, shifts):
 
 @partial(jax.jit, static_argnames="o_shape")
 def update_object(psi, probe, shifts, o_shape):
+    # integer and subpixel shifts
     shifts_int, _ = jnp.divmod(shifts, 1.)
     shifts_int = shifts_int.astype("int32")
 
     nom = jax.vmap(utils.get_obj_uncrop, (0, 0, None))(
-        jnp.conj(probe)[None] * psi, 
-        shifts_int, 
+        jnp.conj(probe)[None] * psi,
+        shifts_int,
         o_shape
     )
     nom = jnp.sum(nom, axis=0)
-    
+
     denom = jnp.sum(jnp.square(jnp.abs(
         jax.vmap(utils.get_obj_uncrop, (None, 0, None))(probe, shifts_int, o_shape)
     )), axis=0)
