@@ -89,7 +89,7 @@ def get_obj_crop(obj, shifts_int, p_shape):
 def get_obj_uncrop(obj_cropped, shifts_int, o_shape):
     """
     `shifts_int` are values with which obj -> obj_cropped were computed, 
-    *not* the pixel shift were to put `obj_cropped`
+    *not* the pixel shift where to put `obj_cropped`
     """
     assert shifts_int.dtype == "int32", "Only supports integer shifts"
 
