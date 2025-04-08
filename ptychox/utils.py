@@ -63,6 +63,28 @@ def get_shifted_bilinear(img, shift):
     return out
 
 
+@jax.jit
+def get_shifted_sinc(img, shift):
+    """\
+    Subpixel shift with sinc interpolation via FFT
+    """
+    Y, X = img.shape
+    dy, dx = shift
+
+    ky = jnp.fft.fftfreq(Y)[:, None]
+    kx = jnp.fft.fftfreq(X)[None]
+
+    img_ft = jnp.fft.fft2(img)
+    phase_shift = jnp.exp(-2j * jnp.pi * (dy * ky + dx * kx))
+    img_shift_ft = img_ft * phase_shift
+    img_shift = jnp.fft.ifft2(img_shift_ft)
+
+    return img_shift
+
+
+
+
+
 @partial(jax.jit, static_argnames="p_shape")
 def get_obj_crop(obj, shifts_int, p_shape):
     """
