@@ -170,3 +170,17 @@ def get_exit_wave(obj, probe, shifts, reshift=False):
         exit = get_probe_subpixel_shift(exit, shifts_rem)
 
     return exit
+
+
+
+@jax.jit
+def get_exit_wave_obj(obj, probe, shifts):
+    Yo, Xo = obj.shape
+    Yp, Xp = probe.shape
+
+    obj = get_shifted_sinc(obj, shifts)
+    obj = obj[Yo//2 - Yp//2:Yo//2 - Yp//2 + Yp, Xo//2 - Xp//2:Xo//2 - Xp//2 + Xp]
+
+    exit = obj * probe
+
+    return exit
