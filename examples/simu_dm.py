@@ -20,6 +20,34 @@ except ImportError:
     pass
 
 ###############################################################################
+# VISUALIZATION
+###############################################################################
+
+def wrap(x):
+    return arctan2(sin(x), cos(x))
+
+
+def percentile_limits(x):
+    lo, hi = nanpercentile(asarray(x), [1, 99])
+    if not isfinite(lo) or not isfinite(hi):
+        return 0., 1.
+    if hi <= lo:
+        delta = max(abs(float(lo)) * 1e-6, 1e-6)
+        return lo - delta, hi + delta
+    return lo, hi
+
+
+def imshow_percentile(axis, data, **kwargs):
+    lo, hi = percentile_limits(data)
+    return axis.imshow(data, vmin=lo, vmax=hi, **kwargs)
+
+
+def update_image(image, data):
+    image.set_data(data)
+    image.set_clim(*percentile_limits(data))
+
+
+###############################################################################
 # SIMULATION
 ###############################################################################
 
@@ -121,37 +149,48 @@ fig.subplots_adjust(hspace=0, wspace=0)
 # DIFFERENCE MAP
 ###############################################################################
 
-obj_0 = jnp.ones_like(obj)
-# probe_0 = nd.gaussian_filter(abs(probe), 1.) + 0j
-probe_0 = probe
+# O, P = obj_0, probe_0
+# psi = px.dm.get_exit_waves(O, P, shifts)
+# psi, O, P = px.dm.step(psi, O, P, A_meas_noise, shifts)
 
-O, P = obj_0, probe_0
+P_ff = jnp.sqrt(jnp.mean(A_meas_noise**2, axis=0))
+P_focus = px.prop.from_farfield(P_ff)
+P = px.prop.to_nearfield(P_focus, kernel)
+
+O = ones((N, N)) + 0.j
+
+fig, ax = subplots(2, 2, figsize=(8, 8))
+ax00 = imshow_percentile(ax[0, 0], abs(O), cmap="gray")
+ax01 = imshow_percentile(ax[0, 1], wrap(angle(O)), cmap="twilight")
+ax10 = imshow_percentile(ax[1, 0], abs(P), cmap="gray")
+ax11 = imshow_percentile(ax[1, 1], wrap(angle(P)), cmap="twilight")
+for a in ax.ravel(): 
+    a.set_xticks([]), a.set_yticks([])
+fig.tight_layout()
+
+
+
 psi = px.dm.get_exit_waves(O, P, shifts)
-psi, O, P = px.dm.step(psi, O, P, A_meas, shifts)
+for _ in tqdm(range(20)):
+    psi, O, P = px.dm.step(psi, O, P, A_meas_noise, shifts, update_probe=False)
+
+    update_image(ax00, abs(O))
+    update_image(ax01, wrap(angle(O)))
+    update_image(ax10, abs(P))
+    update_image(ax11, wrap(angle(P)))
+    pause(1e-3)
 
 
-def wrap(x):
-    return arctan2(sin(x), cos(x))
+psi = px.dm.get_exit_waves(O, P, shifts)
+for _ in tqdm(range(50)):
+    psi, O, P = px.dm.step(psi, O, P, A_meas_noise, shifts, update_probe=True)
 
+    update_image(ax00, abs(O))
+    update_image(ax01, wrap(angle(O)))
+    update_image(ax10, abs(P))
+    update_image(ax11, wrap(angle(P)))
+    pause(1e-3)
 
-def percentile_limits(x):
-    lo, hi = nanpercentile(asarray(x), [1, 99])
-    if not isfinite(lo) or not isfinite(hi):
-        return 0., 1.
-    if hi <= lo:
-        delta = max(abs(float(lo)) * 1e-6, 1e-6)
-        return lo - delta, hi + delta
-    return lo, hi
-
-
-def imshow_percentile(axis, data, **kwargs):
-    lo, hi = percentile_limits(data)
-    return axis.imshow(data, vmin=lo, vmax=hi, **kwargs)
-
-
-def update_image(image, data):
-    image.set_data(data)
-    image.set_clim(*percentile_limits(data))
 
 
 fig, ax = subplots(2, 2, figsize=(8, 8))
