@@ -35,7 +35,7 @@ def refresh(fig):
 
 rng = default_rng(1337)
 
-N = 501
+N = 201
 psize = 5e-5 / N
 
 yy, xx = meshgrid(
@@ -57,7 +57,8 @@ focus = px.prop.from_farfield(annulus)
 wlen = px.physics.energy_to_wavelen(6.)  # [keV] -> [m]
 probe = px.prop.to_nearfield(
     focus, 
-    px.prop.get_kernel_angular_spectrum(focus.shape, psize, wlen, 20e-3)
+    # px.prop.get_kernel_angular_spectrum(focus.shape, psize, wlen, 20e-3)
+    px.prop.get_kernel_angular_spectrum(focus.shape, psize, wlen, 50e-3)
 )
 
 n_photons = 1e6
@@ -108,7 +109,8 @@ shifts = shifts0 + rng.uniform(-2, 2, shifts0.shape)
 
 @jax.jit
 def get_forward(obj, probe, shift):
-    exit = px.utils.get_exit_wave(obj, probe, shift)
+    # exit = px.utils.get_exit_wave(obj, probe, shift)
+    exit = px.utils.get_exit_wave_obj(obj, probe, shift)
     fwd = px.prop.to_farfield(exit)
     return fwd
 
@@ -167,7 +169,7 @@ def get_cost(O_real, O_imag, P_real, P_imag, ampls, shifts):
     P = P_real + 1j * P_imag
 
     def get_cost_shot(ampl, shift):
-        exit = px.utils.get_exit_wave(O, P, shift)
+        exit = px.utils.get_exit_wave_obj(O, P, shift)
         psi = px.prop.to_farfield(exit)
         fwd = jnp.abs(psi)
         cost = jnp.sum(jnp.square(fwd - ampl))
@@ -198,26 +200,37 @@ P = probe
 
 def get_callback():
     i = [0]
-    fig, ax = subplots(1, 2)
-    ax0 = ax[0].imshow(abs(O), cmap="gray", vmin=-0.1, vmax=1.1)
-    ax1 = ax[1].imshow(wrap(angle(O)), cmap="twilight", vmin=-pi, vmax=pi)
-    for a in ax.ravel(): 
-        a.set_xticks([]), a.set_yticks([])
-    fig.tight_layout()
-    refresh(fig)
+    # fig, ax = subplots(1, 2)
+    # ax0 = ax[0].imshow(abs(O), cmap="gray", vmin=-0.1, vmax=1.1)
+    # ax1 = ax[1].imshow(wrap(angle(O)), cmap="twilight", vmin=-pi, vmax=pi)
+    # for a in ax.ravel(): 
+    #     a.set_xticks([]), a.set_yticks([])
+    # fig.tight_layout()
+    # refresh(fig)
+
+    img1 = pyqtgraph.image(abs(O))
+    img2 = pyqtgraph.image(angle(O))
 
     def callback(x):
         if i[0] % 2 == 0:
             O = x[0] + 1j * x[1]
             P = x[2] + 1j * x[3]
-            ax0.set_data(abs(O))
-            ax1.set_data(angle(O))
-            refresh(fig)
-        i[0] += i[0] + 1
+            # ax0.set_data(abs(O))
+            # ax1.set_data(angle(O))
+            # refresh(fig)
 
-    return fig, ax, callback
+            img1.setImage(pclip(abs(O)).T, autoLevels=True)
+            img2.setImage(pclip(angle(O)).T, autoLevels=True)
+        
+        pg.QtGui.QGuiApplication.processEvents()
 
-fig, ax, callback = get_callback()
+        i[0] += 1
+
+    return img1, img2, callback
+    # return fig, ax, callback
+
+
+img1, img2, callback = get_callback()
 
 
 # P = nd.gaussian_filter(abs(probe), 1) * exp(1j * nd.gaussian_filter(angle(probe), 1))
@@ -233,9 +246,9 @@ xopt, hist, res = px.lbfgs.lbfgs_aux(
     move_gpu=True,
     is_silent=False,
     history=True,
-    # callback=callback,
+    callback=callback,
     # history=False,
-    callback=None,
+    # callback=None,
 )
 
 O_ = xopt[0] + 1j * xopt[1]
