@@ -27,7 +27,7 @@ def set_amplitudes(obj, probe, ampls, shifts):
 
 
 @jax.jit
-def update_probe(psi, obj, shifts):
+def get_probe(psi, obj, shifts):
     shifts_int, shifts_rem = jnp.divmod(shifts, 1.)
     obj = jax.vmap(utils.get_obj_crop, (None, 0, None))(
         obj, shifts_int.astype(jnp.int32), psi.shape[1:]
@@ -52,7 +52,7 @@ def update_probe(psi, obj, shifts):
 
 
 @partial(jax.jit, static_argnames="o_shape")
-def update_object(psi, probe, shifts, o_shape):
+def get_object(psi, probe, shifts, o_shape):
     shifts_int, shifts_rem = jnp.divmod(shifts, 1.)
     shifts_int = shifts_int.astype(jnp.int32)
     probes = jax.vmap(utils.get_shifted_sinc, (None, 0))(
@@ -77,29 +77,28 @@ def update_object(psi, probe, shifts, o_shape):
     return obj
 
 
-@partial(jax.jit, static_argnames="update_probe_enabled")
-def project_overlap(psi, obj, probe, shifts, update_probe_enabled=True):
+@partial(jax.jit, static_argnames="update_probe")
+def project_overlap(psi, obj, probe, shifts, update_probe=True):
     """Project exit waves onto the shared object/probe model."""
-    obj = update_object(psi, probe, shifts, obj.shape)
-    if update_probe_enabled:
-        probe = update_probe(psi, obj, shifts)
+    obj = get_object(psi, probe, shifts, obj.shape)
+    if update_probe:
+        probe = get_probe(psi, obj, shifts)
         # Refit the object after changing the probe so the returned factors are
         # mutually consistent rather than simultaneous estimates.
-        obj = update_object(psi, probe, shifts, obj.shape)
+        obj = get_object(psi, probe, shifts, obj.shape)
     psi_overlap = get_exit_waves(obj, probe, shifts)
     return psi_overlap, obj, probe
 
 
-@partial(jax.jit, static_argnames="update_probe_enabled")
-def step(psi, obj, probe, ampls, shifts, beta=1.0,
-         update_probe_enabled=True):
+@partial(jax.jit, static_argnames="update_probe")
+def step(psi, obj, probe, ampls, shifts, beta=1.0, update_probe=True):
     """Perform one Difference Map iteration.
 
     ``psi`` is the persistent DM state.  The object and probe are the current
     factorization used to evaluate the non-convex overlap projection.
     """
     psi_overlap, obj, probe = project_overlap(
-        psi, obj, probe, shifts, update_probe_enabled
+        psi, obj, probe, shifts, update_probe
     )
     psi_modulus = project_amplitudes(2 * psi_overlap - psi, ampls)
     psi = psi + beta * (psi_modulus - psi_overlap)
