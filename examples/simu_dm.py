@@ -2,7 +2,6 @@ from pylab import *
 import jax
 import jax.numpy as jnp
 import scipy.ndimage as nd
-import scipy.optimize as opt
 from itertools import product
 from tqdm import tqdm
 
@@ -11,31 +10,41 @@ import ptychox as px
 rng = default_rng(1337)
 
 
-import IPython
-ipython = IPython.get_ipython()
-ipython.run_line_magic("load_ext", "autoreload")
-ipython.run_line_magic("autoreload", "2")
+try:
+    import IPython
+    ipython = IPython.get_ipython()
+    if ipython is not None:
+        ipython.run_line_magic("load_ext", "autoreload")
+        ipython.run_line_magic("autoreload", "2")
+except ImportError:
+    pass
 
 ###############################################################################
 # SIMULATION
 ###############################################################################
 
-N = 256
+Np = 201
+scaling = 2
+N = scaling * Np
+psize = 5e-5 / Np
 
 yy, xx = meshgrid(
-    linspace(-1, 1, N, True), 
-    linspace(-1, 1, N, True), 
+    linspace(-1, 1, Np, True),
+    linspace(-1, 1, Np, True),
     indexing="ij"
 )
 r = sqrt(yy**2 + xx**2)
 
 # PROBE
-pinhole = where(r < 0.2, 1., 0.)
-pinhole = nd.gaussian_filter(pinhole, 1)
-pinhole = pinhole + 0j
+annulus = where((r > 0.15) & (r < 0.4), 1., 0.)
+annulus = nd.gaussian_filter(annulus, 5)
+focus = px.prop.from_farfield(annulus)
 
 wlen = px.physics.energy_to_wavelen(6.)
-probe = px.prop.to_nearfield(pinhole, 1e-6, wlen, 1.)
+kernel = px.prop.get_kernel_angular_spectrum(
+    focus.shape, psize, wlen, 50e-3
+)
+probe = px.prop.to_nearfield(focus, kernel)
 
 n_photons = 1e6
 probe *= sqrt(n_photons / sum(abs(probe)**2))
@@ -59,16 +68,15 @@ obj = obj_magn * exp(obj_phase * 1j)
 
 
 M = 11
-shifts = linspace(-0.35, 0.35, M, True) * N
+scan_extent = (N - Np) / 2 - 3
+shifts = linspace(-scan_extent, scan_extent, M, True)
 shifts = array(list(product(shifts, shifts)))
-shifts += rng.uniform(-3, 3, shifts.shape)
+shifts += rng.uniform(-2, 2, shifts.shape)
 
 
 @jax.jit
 def get_forward(obj, probe, shift):
-    probe = px.utils.get_shifted_bilinear(probe, shift)
-    fwd = px.prop.to_farfield(obj * probe)
-    return fwd
+    return px.prop.to_farfield(px.utils.get_exit_wave(obj, probe, shift))
 
 get_forwards = jax.vmap(get_forward, (None, None, 0))
 
@@ -93,7 +101,7 @@ def pclip(x):
 
 fig, ax = subplots(M, M, figsize=(8, 8), dpi=100)
 for i, a in enumerate(ax.ravel()):
-    eff = px.utils.get_shifted_bilinear(probe, shifts[i]) * obj
+    eff = px.utils.get_exit_wave(obj, probe, shifts[i], reshift=True)
     a.imshow(pclip(abs(eff)), cmap="viridis")
     a.set_xticks([]); a.set_yticks([])
     a.set_xticklabels([]); a.set_xticklabels([])
@@ -114,21 +122,43 @@ fig.subplots_adjust(hspace=0, wspace=0)
 ###############################################################################
 
 obj_0 = jnp.ones_like(obj)
-probe_0 = nd.gaussian_filter(abs(probe), 1.) + 0j
+# probe_0 = nd.gaussian_filter(abs(probe), 1.) + 0j
+probe_0 = probe
 
-psi = px.dm_naive.set_amplitudes(obj_0, probe_0, A_meas_noise, shifts)
-O = px.dm_naive.update_object(psi, probe_0, shifts)
-P = px.dm_naive.update_probe(psi, O, shifts)
+O, P = obj_0, probe_0
+psi = px.dm.get_exit_waves(O, P, shifts)
+psi, O, P = px.dm.step(psi, O, P, A_meas, shifts)
 
 
 def wrap(x):
     return arctan2(sin(x), cos(x))
 
+
+def percentile_limits(x):
+    lo, hi = nanpercentile(asarray(x), [1, 99])
+    if not isfinite(lo) or not isfinite(hi):
+        return 0., 1.
+    if hi <= lo:
+        delta = max(abs(float(lo)) * 1e-6, 1e-6)
+        return lo - delta, hi + delta
+    return lo, hi
+
+
+def imshow_percentile(axis, data, **kwargs):
+    lo, hi = percentile_limits(data)
+    return axis.imshow(data, vmin=lo, vmax=hi, **kwargs)
+
+
+def update_image(image, data):
+    image.set_data(data)
+    image.set_clim(*percentile_limits(data))
+
+
 fig, ax = subplots(2, 2, figsize=(8, 8))
-ax00 = ax[0, 0].imshow(abs(O), cmap="gray", vmin=-0.1, vmax=1.1)
-ax01 = ax[0, 1].imshow(wrap(angle(O)), cmap="twilight", vmin=-pi, vmax=pi)
-ax10 = ax[1, 0].imshow(abs(P), cmap="gray", vmin=-5, vmax=50)
-ax11 = ax[1, 1].imshow(wrap(angle(P)), cmap="twilight", vmin=-pi, vmax=pi)
+ax00 = imshow_percentile(ax[0, 0], abs(O), cmap="gray")
+ax01 = imshow_percentile(ax[0, 1], wrap(angle(O)), cmap="twilight")
+ax10 = imshow_percentile(ax[1, 0], abs(P), cmap="gray")
+ax11 = imshow_percentile(ax[1, 1], wrap(angle(P)), cmap="twilight")
 for a in ax.ravel(): 
     a.set_xticks([]), a.set_yticks([])
 fig.tight_layout()
@@ -136,14 +166,14 @@ fig.tight_layout()
 λ = 1.0
 
 for i in tqdm(range(50)):
-    psi = px.dm_naive.set_amplitudes(O, P, A_meas_noise, shifts)
-    O = (1 - λ) * O + λ * px.dm_naive.update_object(psi, P, shifts)
-    P = (1 - λ) * P + λ * px.dm_naive.update_probe(psi, O, shifts)
+    psi, O_new, P_new = px.dm.step(psi, O, P, A_meas, shifts)
+    O = (1 - λ) * O + λ * O_new
+    P = (1 - λ) * P + λ * P_new
 
-    ax00.set_data(abs(O))
-    ax01.set_data(angle(O))
-    ax10.set_data(abs(P))
-    ax11.set_data(angle(P))
+    update_image(ax00, abs(O))
+    update_image(ax01, wrap(angle(O)))
+    update_image(ax10, abs(P))
+    update_image(ax11, wrap(angle(P)))
     pause(1e-3)
 
 
@@ -160,9 +190,9 @@ def gaussian_filter_circular(x, sig):
 
 O_smooth = nd.gaussian_filter(abs(O), 2) * exp(1j * gaussian_filter_circular(angle(O), 2))
 
-psi = px.dm_naive.set_amplitudes(O_smooth, P, A_meas_noise, shifts)
-O = px.dm_naive.update_object(psi, probe_0, shifts)
-P = px.dm_naive.update_probe(psi, O, shifts)
+O = O_smooth
+psi = px.dm.get_exit_waves(O, P, shifts)
+psi, O, P = px.dm.step(psi, O, P, A_meas_noise, shifts)
 
 
 fig, ax = subplots(2, 2, figsize=(8, 8))
@@ -177,9 +207,9 @@ fig.tight_layout()
 λ = 1.0
 
 for i in tqdm(range(50)):
-    psi = px.dm_naive.set_amplitudes(O, P, A_meas_noise, shifts)
-    O = (1 - λ) * O + λ * px.dm_naive.update_object(psi, P, shifts)
-    P = (1 - λ) * P + λ * px.dm_naive.update_probe(psi, O, shifts)
+    psi, O_new, P_new = px.dm.step(psi, O, P, A_meas_noise, shifts)
+    O = (1 - λ) * O + λ * O_new
+    P = (1 - λ) * P + λ * P_new
 
     ax00.set_data(abs(O))
     ax01.set_data(angle(O))

@@ -74,10 +74,10 @@ def get_shifted_sinc(img, shift):
     ky = jnp.fft.fftfreq(Y)[:, None]
     kx = jnp.fft.fftfreq(X)[None]
 
-    img_ft = jnp.fft.fft2(img)
+    img_ft = jnp.fft.fft2(img, norm="ortho")
     phase_shift = jnp.exp(-2j * jnp.pi * (dy * ky + dx * kx))
     img_shift_ft = img_ft * phase_shift
-    img_shift = jnp.fft.ifft2(img_shift_ft)
+    img_shift = jnp.fft.ifft2(img_shift_ft, norm="ortho")
 
     return img_shift
 
@@ -141,33 +141,21 @@ def get_probe_subpixel_shift(probe, shifts_rem):
     return probe
 
 
-
 @partial(jax.jit, static_argnames="reshift")
 def get_exit_wave(obj, probe, shifts, reshift=False):
     """\
-    Get exit wave with shifted object
-    Object is shifted by integer shift and cropped to probe
-    Remaining subpixel shift is applied (inversely) to probe via linear interp
+    Get an exit wave using an integer object crop and sinc-shifted probe.
+
+    The inverse fractional shift is applied to the probe.  This puts the exit
+    wave in the integer-crop frame, which has the same far-field amplitude.
     """
-
-    # integer and subpixel shift
     shifts_int, shifts_rem = jnp.divmod(shifts, 1.)
-    shifts_int = shifts_int.astype("int32")
-
-    # shift object by integer amount and crop
-    obj = get_obj_crop(obj, shifts_int, probe.shape)
-
-    # shift probe by inverse subpixel shift
-    probe = get_probe_subpixel_shift(probe, shifts_rem - 1)
-
-    # exit wave
+    obj = get_obj_crop(obj, shifts_int.astype(jnp.int32), probe.shape)
+    probe = get_shifted_sinc(probe, -shifts_rem)
     exit = obj * probe
 
     if reshift:
-        # shift exit wave to physically correct position
-        # disabled by default because unnecessary for far-field ptycho
-        # (translation in real space => phase ramp in Fourier space => no change in intensity)
-        exit = get_probe_subpixel_shift(exit, shifts_rem)
+        exit = get_shifted_sinc(exit, shifts_rem)
 
     return exit
 

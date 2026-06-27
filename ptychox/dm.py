@@ -1,5 +1,6 @@
 import jax
 import jax.numpy as jnp
+from jax.scipy.sparse.linalg import cg
 from functools import partial
 
 from . import prop, utils
@@ -7,62 +8,99 @@ from . import prop, utils
 
 EPS = 1e-6
 
+
+@jax.jit
+def get_exit_waves(obj, probe, shifts):
+    return jax.vmap(utils.get_exit_wave, (None, None, 0))(obj, probe, shifts)
+
+
+@jax.jit
+def project_amplitudes(psi, ampls):
+    fwds = jax.vmap(prop.to_farfield)(psi)
+    fwds = utils.set_magn(fwds, ampls)
+    return jax.vmap(prop.from_farfield)(fwds)
+
+
 @jax.jit
 def set_amplitudes(obj, probe, ampls, shifts):
-    psis = jax.vmap(utils.get_exit_wave, (None, None, 0))(obj, probe, shifts)
-    fwds = jax.vmap(prop.to_farfield)(psis)
-    fwds = utils.set_magn(fwds, ampls)
-    psis_new = jax.vmap(prop.from_farfield)(fwds)
-
-    return psis_new
+    return project_amplitudes(get_exit_waves(obj, probe, shifts), ampls)
 
 
 @jax.jit
 def update_probe(psi, obj, shifts):
-    p_shape = psi.shape[1:]
-
-    # integer and subpixel shifts
     shifts_int, shifts_rem = jnp.divmod(shifts, 1.)
-    shifts_int = shifts_int.astype("int32")
+    obj = jax.vmap(utils.get_obj_crop, (None, 0, None))(
+        obj, shifts_int.astype(jnp.int32), psi.shape[1:]
+    )
 
-    obj = jax.vmap(utils.get_obj_crop, (None, 0, None))(obj, shifts_int, p_shape)
+    shift_probe = jax.vmap(utils.get_shifted_sinc, (None, 0))
+    unshift = jax.vmap(utils.get_shifted_sinc, (0, 0))
 
-    subpx = lambda x: jax.vmap(utils.get_probe_subpixel_shift, 0)(x, shifts_rem)
+    rhs = jnp.sum(
+        unshift(jnp.conj(obj) * psi, shifts_rem),
+        axis=0,
+    )
 
-    nom = jnp.sum(subpx(jnp.conj(obj) * psi), axis=0)
-    denom = jnp.sum(jnp.square(subpx(jnp.abs(obj))), axis=0)
+    def normal(probe):
+        probes = shift_probe(probe, -shifts_rem)
+        weighted = jnp.abs(obj) ** 2 * probes
+        return jnp.sum(unshift(weighted, shifts_rem), axis=0) + EPS * probe
 
-    probe = nom / (denom + EPS)
+    probe, _ = cg(normal, rhs, tol=1e-5, maxiter=5)
 
     return probe
 
 
 @partial(jax.jit, static_argnames="o_shape")
 def update_object(psi, probe, shifts, o_shape):
-    # integer and subpixel shifts
-    shifts_int, _ = jnp.divmod(shifts, 1.)
-    shifts_int = shifts_int.astype("int32")
-
-    nom = jax.vmap(utils.get_obj_uncrop, (0, 0, None))(
-        jnp.conj(probe)[None] * psi,
-        shifts_int,
-        o_shape
+    shifts_int, shifts_rem = jnp.divmod(shifts, 1.)
+    shifts_int = shifts_int.astype(jnp.int32)
+    probes = jax.vmap(utils.get_shifted_sinc, (None, 0))(
+        probe, -shifts_rem
     )
-    nom = jnp.sum(nom, axis=0)
 
-    denom = jnp.sum(jnp.square(jnp.abs(
-        jax.vmap(utils.get_obj_uncrop, (None, 0, None))(probe, shifts_int, o_shape)
-    )), axis=0)
+    nom = jnp.sum(
+        jax.vmap(utils.get_obj_uncrop, (0, 0, None))(
+            jnp.conj(probes) * psi, shifts_int, o_shape
+        ),
+        axis=0,
+    )
+    denom = jnp.sum(
+        jax.vmap(utils.get_obj_uncrop, (0, 0, None))(
+            jnp.abs(probes) ** 2, shifts_int, o_shape
+        ),
+        axis=0,
+    )
 
     obj = nom / (denom + EPS)
 
     return obj
 
 
-@jax.jit
-def get_update(O, P, meas, shifts):
-    psis = set_amplitudes(O, P, meas, shifts)
-    O_ = update_object(psis, P, shifts, O.shape)
-    P_ = update_probe(psis, O, shifts)
+@partial(jax.jit, static_argnames="update_probe_enabled")
+def project_overlap(psi, obj, probe, shifts, update_probe_enabled=True):
+    """Project exit waves onto the shared object/probe model."""
+    obj = update_object(psi, probe, shifts, obj.shape)
+    if update_probe_enabled:
+        probe = update_probe(psi, obj, shifts)
+        # Refit the object after changing the probe so the returned factors are
+        # mutually consistent rather than simultaneous estimates.
+        obj = update_object(psi, probe, shifts, obj.shape)
+    psi_overlap = get_exit_waves(obj, probe, shifts)
+    return psi_overlap, obj, probe
 
-    return O_, P_
+
+@partial(jax.jit, static_argnames="update_probe_enabled")
+def step(psi, obj, probe, ampls, shifts, beta=1.0,
+         update_probe_enabled=True):
+    """Perform one Difference Map iteration.
+
+    ``psi`` is the persistent DM state.  The object and probe are the current
+    factorization used to evaluate the non-convex overlap projection.
+    """
+    psi_overlap, obj, probe = project_overlap(
+        psi, obj, probe, shifts, update_probe_enabled
+    )
+    psi_modulus = project_amplitudes(2 * psi_overlap - psi, ampls)
+    psi = psi + beta * (psi_modulus - psi_overlap)
+    return psi, obj, probe
