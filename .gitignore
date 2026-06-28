@@ -7,3 +7,6 @@ __pycache__
 *.pyi
 build
 .ipynb_checkpoints
+
+/ext/
+
