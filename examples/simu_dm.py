@@ -153,7 +153,7 @@ fig.subplots_adjust(hspace=0, wspace=0)
 # psi = px.dm.get_exit_waves(O, P, shifts)
 # psi, O, P = px.dm.step(psi, O, P, A_meas_noise, shifts)
 
-P_ff = jnp.sqrt(jnp.mean(A_meas_noise**2, axis=0))
+P_ff = jnp.sqrt(jnp.mean(A_meas**2, axis=0))
 P_focus = px.prop.from_farfield(P_ff)
 P = px.prop.to_nearfield(P_focus, kernel)
 
@@ -172,7 +172,7 @@ fig.tight_layout()
 
 psi = px.dm.get_exit_waves(O, P, shifts)
 for _ in tqdm(range(20)):
-    psi, O, P = px.dm.step(psi, O, P, A_meas_noise, shifts, update_probe=False)
+    psi, O, P = px.dm.step(psi, O, P, A_meas, shifts, update_probe=False)
 
     update_image(ax00, abs(O))
     update_image(ax01, wrap(angle(O)))
@@ -183,31 +183,7 @@ for _ in tqdm(range(20)):
 
 psi = px.dm.get_exit_waves(O, P, shifts)
 for _ in tqdm(range(50)):
-    psi, O, P = px.dm.step(psi, O, P, A_meas_noise, shifts, update_probe=True)
-
-    update_image(ax00, abs(O))
-    update_image(ax01, wrap(angle(O)))
-    update_image(ax10, abs(P))
-    update_image(ax11, wrap(angle(P)))
-    pause(1e-3)
-
-
-
-fig, ax = subplots(2, 2, figsize=(8, 8))
-ax00 = imshow_percentile(ax[0, 0], abs(O), cmap="gray")
-ax01 = imshow_percentile(ax[0, 1], wrap(angle(O)), cmap="twilight")
-ax10 = imshow_percentile(ax[1, 0], abs(P), cmap="gray")
-ax11 = imshow_percentile(ax[1, 1], wrap(angle(P)), cmap="twilight")
-for a in ax.ravel(): 
-    a.set_xticks([]), a.set_yticks([])
-fig.tight_layout()
-
-λ = 1.0
-
-for i in tqdm(range(50)):
-    psi, O_new, P_new = px.dm.step(psi, O, P, A_meas, shifts)
-    O = (1 - λ) * O + λ * O_new
-    P = (1 - λ) * P + λ * P_new
+    psi, O, P = px.dm.step(psi, O, P, A_meas, shifts, update_probe=True)
 
     update_image(ax00, abs(O))
     update_image(ax01, wrap(angle(O)))
