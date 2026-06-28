@@ -62,8 +62,8 @@ annulus = nd.gaussian_filter(annulus, 1.)
 focus = px.prop.from_farfield(annulus)
 
 dim = (N, N)
-kernel_fresnel = px.prop.get_kernel_fresnel(N, Δs, λ, L1)
-kernel_as = px.prop.get_kernel_angular_spectrum(N, Δs, λ, L1)
+kernel_fresnel = px.prop.get_kernel_fresnel((N, N), Δs, λ, L1)
+kernel_as = px.prop.get_kernel_angular_spectrum((N, N), Δs, λ, L1)
 
 probe_fresnel = px.prop.to_nearfield(focus, kernel_fresnel)
 probe_as = px.prop.to_nearfield(focus, kernel_as)
