@@ -4,7 +4,6 @@ This is a standalone ptychox example.  It reads the CXI file directly with
 h5py; cdtools and PyTorch are not required.
 """
 
-from argparse import ArgumentParser
 from pathlib import Path
 
 import h5py
@@ -17,11 +16,20 @@ from tqdm import tqdm
 import ptychox as px
 
 
-DATASET = (
-    Path(__file__).resolve().parents[1]
-    / "ext/cdtools/examples/example_data"
-    / "AuBalls_700ms_30nmStep_3_6SS_filter.cxi"
+data_path = Path(
+    "/home/clem/git/ptychox/ext/cdtools/"
+    "examples/example_data/AuBalls_700ms_30nmStep_3_6SS_filter.cxi"
 )
+
+# Reconstruction settings
+n_iterations = 500
+scan_stride = 1
+fixed_probe_iterations = 15
+beta = 1.0
+random_seed = 0
+plot_every = 5
+show_plot = True
+output_path = Path("dm_gold_result.npz")
 
 
 def amplitude_residual(obj, probe, amplitudes, shifts):
@@ -40,28 +48,10 @@ def percentile_limits(image):
     return float(lo), float(hi)
 
 
-parser = ArgumentParser(description=__doc__)
-parser.add_argument("--data", type=Path, default=DATASET)
-parser.add_argument("--iterations", type=int, default=80)
-parser.add_argument(
-    "--scan-stride", type=int, default=2,
-    help="Use every Nth raster coordinate along each axis (default: 2).",
-)
-parser.add_argument(
-    "--fixed-probe-iterations", type=int, default=15,
-    help="DM iterations before enabling blind probe refinement.",
-)
-parser.add_argument("--beta", type=float, default=1.0)
-parser.add_argument("--seed", type=int, default=0)
-parser.add_argument("--plot-every", type=int, default=5)
-parser.add_argument("--output", type=Path, default=Path("dm_gold_result.npz"))
-parser.add_argument("--no-show", action="store_true")
-args = parser.parse_args()
+if scan_stride < 1:
+    raise ValueError("scan_stride must be at least 1")
 
-if args.scan_stride < 1:
-    raise ValueError("--scan-stride must be at least 1")
-
-with h5py.File(args.data, "r") as cxi:
+with h5py.File(data_path, "r") as cxi:
     detector = cxi["entry_1/instrument_1/detector_1"]
     patterns = detector["data"][()].astype(np.float32)
     n_frames = len(patterns)
@@ -93,7 +83,7 @@ selected = np.ones(n_frames, dtype=bool)
 for axis in range(2):
     values = np.round(translations[:, axis], decimals=12)
     ranks = np.searchsorted(np.unique(values), values)
-    selected &= ranks % args.scan_stride == 0
+    selected &= ranks % scan_stride == 0
 patterns = patterns[selected]
 translations = translations[selected]
 
@@ -128,7 +118,7 @@ centered_start = object_shape // 2 - np.asarray(probe_shape) // 2
 shifts = centered_start[None] - crop_starts
 
 # Follow the cdtools example's raster-grid-pathology workaround.
-rng = np.random.default_rng(args.seed)
+rng = np.random.default_rng(random_seed)
 shifts = shifts.astype(np.float32)
 shifts -= rng.normal(scale=0.7, size=shifts.shape).astype(np.float32)
 
@@ -164,38 +154,35 @@ print(f"object shape: {object_shape}")
 print(f"object pixel size: {pixel_sizes.mean() * 1e9:.3f} nm")
 print(f"initial residual: {float(amplitude_residual(obj, probe, amplitudes, shifts)):.4f}")
 
-if args.no_show:
-    fig, images = None, None
-else:
-    fig, axes = plt.subplots(2, 2, figsize=(9, 8))
-    images = []
-    for axis, image, title, cmap in zip(
-        axes.ravel(),
-        (jnp.abs(obj), jnp.angle(obj), jnp.abs(probe), jnp.angle(probe)),
-        ("|object|", "arg(object)", "|probe|", "arg(probe)"),
-        ("gray", "twilight", "gray", "twilight"),
-    ):
-        lo, hi = percentile_limits(image)
-        artist = axis.imshow(image, cmap=cmap, vmin=lo, vmax=hi)
-        images.append(artist)
-        axis.set_title(title)
-        axis.set_xticks([])
-        axis.set_yticks([])
-    fig.tight_layout()
+fig, axes = plt.subplots(2, 2, figsize=(9, 8))
+images = []
+for axis, image, title, cmap in zip(
+    axes.ravel(),
+    (jnp.abs(obj), jnp.angle(obj), jnp.abs(probe), jnp.angle(probe)),
+    ("|object|", "arg(object)", "|probe|", "arg(probe)"),
+    ("gray", "twilight", "gray", "twilight"),
+):
+    lo, hi = percentile_limits(image)
+    artist = axis.imshow(image, cmap=cmap, vmin=lo, vmax=hi)
+    images.append(artist)
+    axis.set_title(title)
+    axis.set_xticks([])
+    axis.set_yticks([])
+fig.tight_layout()
 
-for iteration in tqdm(range(args.iterations)):
-    update_probe = iteration >= args.fixed_probe_iterations
+for iteration in tqdm(range(n_iterations)):
+    update_probe = iteration >= fixed_probe_iterations
     psi, obj, probe = px.dm.step(
         psi,
         obj,
         probe,
         amplitudes,
         shifts,
-        beta=args.beta,
+        beta=beta,
         update_probe=update_probe,
     )
 
-    if images is not None and (iteration + 1) % args.plot_every == 0:
+    if images is not None and (iteration + 1) % plot_every == 0:
         for artist, image in zip(
             images,
             (jnp.abs(obj), jnp.angle(obj), jnp.abs(probe), jnp.angle(probe)),
@@ -212,7 +199,7 @@ for iteration in tqdm(range(args.iterations)):
 residual = float(amplitude_residual(obj, probe, amplitudes, shifts))
 print(f"final residual: {residual:.4f}")
 np.savez_compressed(
-    args.output,
+    output_path,
     object=np.asarray(obj),
     probe=np.asarray(probe),
     shifts=np.asarray(shifts),
@@ -220,7 +207,7 @@ np.savez_compressed(
     dark=dark,
     residual=residual,
 )
-print(f"saved: {args.output}")
+print(f"saved: {output_path}")
 
-if not args.no_show:
+if show_plot:
     plt.show()
